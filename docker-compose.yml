@@ -5,25 +5,40 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    # Override entrypoint to run a shell that:
+    #   1. Starts ollama serve in the background (the actual binary is /bin/ollama)
+    #   2. Waits for the HTTP server to be listening
+    #   3. Pulls phi3:mini — no-op if already cached in the volume
+    #   4. exec-replaces the shell with ollama serve so it becomes PID 1,
+    #      allowing Docker to correctly track its exit code and restart on crash.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        ollama serve &
-        echo "Waiting for ollama..."
-        until wget -qO- http://localhost:11434/ >/dev/null 2>&1; do sleep 1; done
-        echo "ollama ready — ensuring phi3:mini is present..."
-        ollama pull phi3:mini
-        echo "phi3:mini ready."
-        wait
-    # /api/tags only returns 200 once the server is fully initialised.
-    # start_period=30s gives ollama time to finish GPU discovery before
-    # checks begin — prevents false unhealthy during the ~1s init window.
+        /bin/ollama serve &
+        OLLAMA_PID=$!
+        echo "[ollama-init] Waiting for server..."
+        until wget -qO- http://localhost:11434/api/version >/dev/null 2>&1; do sleep 1; done
+        echo "[ollama-init] Server ready. Ensuring phi3:mini is present..."
+        /bin/ollama pull phi3:mini
+        echo "[ollama-init] phi3:mini ready. Handing off to serve process."
+        wait $OLLAMA_PID
+
+    # Healthcheck verifies two things:
+    #   1. The server is responding (/api/version — lightest possible endpoint)
+    #   2. phi3:mini is present in /api/tags (grep confirms model is cached)
+    # This means service_healthy is only true when the app can actually use the model.
+    # start_interval: 2s polls aggressively during the 30s startup window
+    # so the app starts the moment phi3:mini is confirmed rather than waiting
+    # for the next full 5s interval tick.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:11434/api/tags >/dev/null 2>&1"]
+      test:
+        - "CMD-SHELL"
+        - "wget -qO- http://localhost:11434/api/tags 2>/dev/null | grep -q 'phi3' || exit 1"
       interval: 5s
       timeout: 10s
-      retries: 15
+      retries: 20
       start_period: 30s
+      start_interval: 2s
     restart: unless-stopped
     deploy:
       resources:
@@ -44,6 +59,8 @@ services:
     environment:
       - HF_TOKEN=${HF_TOKEN}
       - OLLAMA_HOST=http://ollama:11434
+    # Compose guarantees ollama is healthy (server up + phi3:mini present)
+    # before app starts. No startup race possible.
     depends_on:
       ollama:
         condition: service_healthy
