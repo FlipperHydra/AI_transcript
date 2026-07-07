@@ -5,10 +5,6 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # Entrypoint starts the server, waits until it responds, then pulls
-    # phi3:mini if it isn't already cached in the volume. On every restart
-    # after the first the pull is a no-op (~1 second check). No custom
-    # Dockerfile needed — the official image is used as-is.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -19,12 +15,15 @@ services:
         ollama pull phi3:mini
         echo "phi3:mini ready."
         wait
+    # /api/tags only returns 200 once the server is fully initialised.
+    # start_period=30s gives ollama time to finish GPU discovery before
+    # checks begin — prevents false unhealthy during the ~1s init window.
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:11434/"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:11434/api/tags >/dev/null 2>&1"]
       interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
     restart: unless-stopped
     deploy:
       resources:
