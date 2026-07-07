@@ -2,13 +2,15 @@
 notes_gen.py — Token-aware chunking, rolling context summarization, final compile.
 
 Model: gemma3:270m (292MB, 32K context window, text-only)
-Fix: preload_ollama() now uses a 30-second timeout so it cannot block
-forever when ollama is still pulling the model on first startup.
+preload_ollama() pings the model at startup with max_retries=0 so the
+container doesn't block indefinitely; any failure is logged and deferred
+to the first real job.
 """
 
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Callable, Coroutine, Any
 
@@ -32,7 +34,6 @@ def _ollama_chat_with_retry(messages: list[dict], options: dict, max_retries: in
     Call ollama with a single automatic retry on transient failure.
     Sleeps 2 s before retrying. Raises on second failure so the caller handles it.
     """
-    import time as _time
     last_exc = None
     for attempt in range(max_retries + 1):
         try:
@@ -45,23 +46,22 @@ def _ollama_chat_with_retry(messages: list[dict], options: dict, max_retries: in
                     "[notes_gen] ollama call failed (attempt %d/%d): %s — retrying in 2 s",
                     attempt + 1, max_retries + 1, exc
                 )
-                _time.sleep(2)
+                time.sleep(2)
     raise last_exc
 
 
 def preload_ollama() -> None:
     """
-    Ping ollama at startup to confirm phi3:mini is loaded and ready.
-    Times out after 30 seconds so it never blocks startup indefinitely.
-    If ollama isn't ready yet (still pulling the model), logs a warning
-    and continues — the first real job will surface the error then.
+    Ping ollama at startup to confirm gemma3:270m is loaded and ready.
+    Uses max_retries=0 so a single failure is logged and skipped —
+    the first real job will surface any persistent error.
     """
-    logger.info("[notes_gen] Pinging ollama / gemma3:270m (timeout=30s)...")
+    logger.info("[notes_gen] Pinging ollama / gemma3:270m...")
     try:
         _ollama_chat_with_retry(
             messages=[{"role": "user", "content": "ok"}],
             options={"num_predict": 1, "temperature": 0},
-            max_retries=0,  # startup ping — no retry; we just log and move on
+            max_retries=0,
         )
         logger.info("[notes_gen] gemma3:270m is ready")
     except Exception as exc:
@@ -152,25 +152,14 @@ def _format_segment(seg: dict) -> str:
 
 # ── Token-aware chunking ──────────────────────────────────────────────────────
 
-def _chunk_segments(
-    segments: list[dict],
-    previous_summary: str = "",
-) -> list[list[dict]]:
+def _chunk_segments(segments: list[dict]) -> list[list[dict]]:
     """
     Split segments into chunks that stay under MAX_TOKENS.
     Splits only at speaker-turn boundaries.
     5-minute time-based guard fires if a single speaker runs very long.
-
-    previous_summary is counted against the budget so that the rolling context
-    injected into the prompt doesn’t push the total over phi3:mini’s context limit.
     """
     if not segments:
         return []
-
-    # Reserve tokens already consumed by the previous_summary so the transcript
-    # text portion never causes the full prompt to exceed MAX_TOKENS.
-    reserved = _count_tokens(previous_summary) if previous_summary.strip() else 0
-    effective_max = max(200, MAX_TOKENS - reserved)  # floor of 200 to avoid empty chunks
 
     chunks: list[list[dict]] = []
     current: list[dict]      = []
@@ -185,7 +174,7 @@ def _chunk_segments(
         should_flush = (
             current
             and (
-                current_tokens + line_tokens > effective_max
+                current_tokens + line_tokens > MAX_TOKENS
                 or time_span >= CHUNK_SECONDS
             )
         )
@@ -210,16 +199,13 @@ def _chunk_segments(
 async def generate_notes(
     job_id: str,
     segments: list[dict],
-    output_dir: Path,  # kept for API compat but no longer used for file writes
     ws_broadcast: Callable[[dict], Coroutine[Any, Any, None]],
 ) -> str:
     """Returns the compiled notes markdown string. Caller saves to DB."""
-    loop = asyncio.get_running_loop()  # get_running_loop() is correct inside a coroutine
+    loop = asyncio.get_running_loop()
 
     await ws_broadcast({"status": "chunking"})
-    # Pass previous_summary="" on first call; re-chunk is not done mid-job,
-    # but the initial budget is sized conservatively (no prior context yet).
-    chunks = _chunk_segments(segments, previous_summary="")
+    chunks = _chunk_segments(segments)
     total  = len(chunks)
     logger.info("[notes_gen] %d chunk(s) after token-aware split", total)
 

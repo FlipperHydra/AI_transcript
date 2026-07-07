@@ -36,7 +36,7 @@ _align_model      = None
 _align_metadata   = None
 _diarize_model    = None
 _loaded_device    = None
-# _loaded_compute removed: set but never read; device mismatch warning uses _loaded_device only
+# _loaded_compute not tracked: device mismatch warning uses _loaded_device only
 
 
 def _resolve_device(config: dict) -> tuple[str, str]:

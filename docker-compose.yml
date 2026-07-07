@@ -36,7 +36,8 @@ services:
       - ./ollama-init.sh:/ollama-init.sh:ro
     entrypoint: ["/bin/sh", "/ollama-init.sh"]
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     restart: "no"
 
   # ── FastAPI app ────────────────────────────────────────────────────────────

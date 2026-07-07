@@ -317,7 +317,7 @@ select{
     <div class="panels">
       <div class="panel">
         <div class="panel-header">
-          Notes <span style="color:var(--accent);font-size:.65rem">phi3:mini</span>
+          Notes <span style="color:var(--accent);font-size:.65rem">gemma3:270m</span>
           <div class="panel-actions">
             <button class="btn-ghost" id="btn-export" style="padding:3px 10px;font-size:.72rem;display:none">⬇ Export .md</button>
           </div>
@@ -373,7 +373,7 @@ select{
     <h2>WhisperX Startup Mode</h2>
     <div class="modal-section">
       <h3>Auto (recommended)</h3>
-      <p>WhisperX and phi3:mini load automatically when the container starts. Recording is available as soon as the page loads. Startup takes longer (30–90 seconds depending on hardware) while models download and warm up.</p>
+      <p>WhisperX and gemma3:270m load automatically when the container starts. Recording is available as soon as the page loads. Startup takes longer (30–90 seconds depending on hardware) while models download and warm up.</p>
     </div>
     <div class="modal-section">
       <h3>Manual</h3>
@@ -461,7 +461,7 @@ async function loadAudioDevices() {
     (data.devices || []).forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.id;
-      opt.textContent = (d.loopback ? '⟲ ' : '🎤 ') + d.name;
+      opt.textContent = '🎤 ' + d.name;
       audioDevSel.appendChild(opt);
     });
   } catch(e) {
@@ -542,7 +542,7 @@ function setModelsLoaded(val) {
 setModelsLoaded(modelsLoaded);
 
 btnLoadModels.addEventListener('click', async () => {
-  modelBannerTxt.textContent = 'Loading WhisperX + phi3:mini… (this may take 30–90 s)';
+  modelBannerTxt.textContent = 'Loading WhisperX + gemma3:270m… (this may take 30–90 s)';
   btnLoadModels.disabled = true;
   await fetch('/load-models', { method:'POST' });
   // WS will fire models_ready
@@ -639,11 +639,7 @@ function connectWS() {
         btnExport.style.display = 'inline-block';
         refreshHistory();
         break;
-      case 'error':
-        setStatus(`Error: ${msg.detail || 'unknown'}`, '');
-        clearStages();
-        refreshHistory();
-        break;
+      // 'error' handled above by the dedicated if-block (returns early)
     }
   };
   ws.onclose = () => setTimeout(connectWS, 3000);

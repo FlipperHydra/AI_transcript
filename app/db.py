@@ -2,12 +2,13 @@
 db.py — SQLite helpers.
 
 Schema (single-job model):
-  jobs        — one row per recording session (id, wav_path, created_at, status)
+  jobs        — one row per recording session (id, created_at, status)
   transcripts — one row per job (job_id, content JSON)
   notes       — one row per job (job_id, content markdown)
 
 Notes and transcripts are stored entirely in the DB.
 Files are only produced on explicit user export requests.
+wav_path dropped: WAV is deleted after processing, storing a dead path is pointless.
 """
 
 import sqlite3
@@ -40,7 +41,6 @@ def init_db() -> None:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id          TEXT PRIMARY KEY,
-                wav_path    TEXT,
                 created_at  TEXT,
                 status      TEXT
             );
@@ -57,12 +57,12 @@ def init_db() -> None:
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────
 
-def create_job(job_id: str, wav_path: str, created_at: str) -> None:
+def create_job(job_id: str, created_at: str) -> None:
     with _lock:
         conn = _get_conn()
         conn.execute(
-            "INSERT INTO jobs (id, wav_path, created_at, status) VALUES (?, ?, ?, ?)",
-            (job_id, wav_path, created_at, "processing"),
+            "INSERT INTO jobs (id, created_at, status) VALUES (?, ?, ?)",
+            (job_id, created_at, "processing"),
         )
         conn.commit()
 

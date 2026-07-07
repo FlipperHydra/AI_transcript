@@ -17,13 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.requests import Request
-
-load_dotenv()
 
 from app.db import (
     init_db, create_job, update_job_status,
@@ -118,7 +114,7 @@ async def _process(wav_path: str) -> None:
 
     job_id     = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
-    create_job(job_id, wav_path, created_at)
+    create_job(job_id, created_at)
     is_processing = True
 
     try:
@@ -132,8 +128,7 @@ async def _process(wav_path: str) -> None:
         update_job_status(job_id, "summarizing")
         await ws_broadcast({"event": "transcript_ready", "id": job_id})
 
-        output_dir = Path(config.get("output_path", str(DEFAULT_OUTPUT)))
-        notes_md   = await generate_notes(job_id, segments, output_dir, ws_broadcast)
+        notes_md   = await generate_notes(job_id, segments, ws_broadcast)
         save_notes(job_id, notes_md)
         update_job_status(job_id, "done")
         await ws_broadcast({"event": "note_ready", "id": job_id})
@@ -188,7 +183,8 @@ async def _background_preload() -> None:
     global models_loaded
     loop = asyncio.get_running_loop()
     try:
-        await ws_broadcast({"event": "models_loading"})
+        # No ws_broadcast(models_loading) here — no clients are connected at startup.
+        # The WS 'init' event already sends models_loaded=False on connect.
         await loop.run_in_executor(None, lambda: (
             transcriber_preload(config),
             preload_ollama(),

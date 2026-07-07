@@ -15,6 +15,7 @@ only wastes 2.75× disk and RAM per recording.
 
 import asyncio
 import logging
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -85,7 +86,6 @@ class AudioRecorder:
         self._recording  = True
         self._loop       = loop
         self._start_time = time.monotonic()
-        import threading
         t = threading.Thread(target=self._record_thread, daemon=True)
         t.start()
         logger.info("Recording started")
@@ -156,7 +156,8 @@ class AudioRecorder:
                     while self._recording:
                         data, _ = stream.read(CHUNK_FRAMES)
                         wav_file.write(data)
-                        self._peak = float(np.sqrt(np.mean(data ** 2)))
+                        # np.dot avoids allocating a squared array each chunk
+                        self._peak = float(np.sqrt(np.dot(data.ravel(), data.ravel()) / data.size))
 
         except Exception as exc:
             self._fail(f"Audio capture error: {exc}")

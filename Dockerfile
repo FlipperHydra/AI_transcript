@@ -36,12 +36,18 @@ RUN if [ "$GPU" = "1" ]; then \
         --index-url https://download.pytorch.org/whl/cpu; \
     fi
 
-# Install everything else. --extra-index-url ensures any torch/torchaudio
-# version checks resolve against the wheel index rather than PyPI, avoiding
-# a second download if whisperx's solver re-evaluates the torch constraint.
-RUN pip install --no-cache-dir --timeout 120 --retries 5 \
-      -r requirements.txt \
-      --extra-index-url https://download.pytorch.org/whl/cpu
+# Install everything else. --extra-index-url matches the torch index used above
+# so whisperx's solver resolves torch constraints from the same wheel source.
+ARG GPU
+RUN if [ "$GPU" = "1" ]; then \
+      pip install --no-cache-dir --timeout 120 --retries 5 \
+        -r requirements.txt \
+        --extra-index-url https://download.pytorch.org/whl/cu121; \
+    else \
+      pip install --no-cache-dir --timeout 120 --retries 5 \
+        -r requirements.txt \
+        --extra-index-url https://download.pytorch.org/whl/cpu; \
+    fi
 
 # ── App files ─────────────────────────────────────────────────────────────────
 COPY app/ ./app/
