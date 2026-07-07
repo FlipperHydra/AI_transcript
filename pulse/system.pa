@@ -1,0 +1,6 @@
+# UNUSED — kept for reference only.
+# This was the --system mode config. It failed on python:3.11-slim because
+# --system requires a 'pulse' OS user and /var/run/pulse, neither of which
+# exist in the base image.
+#
+# The active config is pulse/default.pa (user-mode PulseAudio).

@@ -1,0 +1,45 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        GPU: 0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./output:/app/output
+      - whisperx_cache:/root/.cache/whisper
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 6g
+
+  ollama:
+    # Built from ollama.Dockerfile — phi3:mini is baked in at build time.
+    # No model pull on startup; the container is ready the moment it starts.
+    build:
+      context: .
+      dockerfile: ollama.Dockerfile
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Simple serve — no pull needed, model is already in the image.
+    command: ollama serve
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 3500m
+
+volumes:
+  ollama_data:
+  whisperx_cache:

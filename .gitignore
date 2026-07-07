@@ -1,0 +1,28 @@
+# Secrets
+.env
+
+# Runtime-generated config
+app/config.json
+
+# Output directory (audio + notes files)
+output/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Docker
+*.tar
+
+# Editor
+.vscode/
+.idea/
+*.swp

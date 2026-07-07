@@ -1,0 +1,28 @@
+# Build context exclusions — keeps the context small and prevents cache busting
+# from files that have no effect on the image.
+
+# Runtime output (WAV files, SQLite DB, generated notes)
+output/
+
+# Packaged archives
+*.zip
+*.tar.gz
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment files (injected via docker-compose environment: block instead)
+.env
+.env.*
+
+# PulseAudio config — not used (sounddevice/PortAudio replaces it)
+pulse/
+
+# Editor/OS noise
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/

@@ -1,0 +1,16 @@
+# Audio Notes — PulseAudio user-mode config
+# Loaded automatically when PulseAudio starts as the container user (root).
+# No hardware required — everything routes through a null sink / virtual mic.
+
+# Core protocol: unix socket with no auth (localhost only, no security needed)
+load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse-socket
+
+# Null sink: the "speakers" — audio is discarded but a monitor source is created
+load-module module-null-sink sink_name=virtual0 sink_properties=device.description="Virtual_Loopback"
+
+# Virtual mic: wraps the null-sink monitor so soundcard can record from it
+load-module module-virtual-source source_name=virtual_mic master=virtual0.monitor source_properties=device.description="Virtual_Mic"
+
+# Default devices
+set-default-sink virtual0
+set-default-source virtual_mic

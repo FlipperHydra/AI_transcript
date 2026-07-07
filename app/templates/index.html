@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Audio Notes</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1117;--surface:#1a1d27;--surface2:#22263a;
+  --border:#2a2d3a;--accent:#6c63ff;--danger:#e05260;
+  --text:#e2e4ef;--muted:#7a7d9a;--green:#4ade80;--amber:#fbbf24;
+  --radius:10px;--mono:"JetBrains Mono","Fira Code",monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;overflow:hidden}
+
+/* ── Overall layout ──────────────────────────────────────────── */
+.shell{display:flex;height:100vh}
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+.sidebar{
+  width:240px;min-width:240px;background:var(--surface);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.sidebar-header{
+  padding:12px 14px;font-size:.72rem;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.history-list{flex:1;overflow-y:auto;padding:6px}
+.history-list::-webkit-scrollbar{width:4px}
+.history-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.hist-item{
+  padding:8px 10px;border-radius:7px;cursor:pointer;
+  margin-bottom:3px;transition:background .15s;
+  border:1px solid transparent;
+}
+.hist-item:hover{background:var(--surface2);border-color:var(--border)}
+.hist-item.active{background:rgba(108,99,255,.15);border-color:var(--accent)}
+.hist-ts{font-size:.7rem;color:var(--muted);display:block;margin-bottom:2px}
+.hist-status{
+  font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:20px;
+  display:inline-block;letter-spacing:.04em;
+}
+.hist-status.done{background:rgba(74,222,128,.12);color:var(--green)}
+.hist-status.error{background:rgba(224,82,96,.12);color:var(--danger)}
+.hist-status.processing{background:rgba(108,99,255,.12);color:var(--accent)}
+
+/* ── Main area ───────────────────────────────────────────────── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;padding:16px 20px;gap:10px}
+
+/* ── Top bar ─────────────────────────────────────────────────── */
+.topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.topbar h1{font-size:.95rem;font-weight:700;letter-spacing:.05em;white-space:nowrap}
+#device-badge{
+  font-size:.68rem;font-weight:700;padding:3px 9px;border-radius:20px;
+  background:rgba(108,99,255,.15);border:1px solid var(--accent);color:var(--accent);
+}
+.spacer{flex:1}
+
+/* Buttons */
+button{
+  border:none;border-radius:7px;padding:6px 16px;
+  font-size:.82rem;font-weight:600;cursor:pointer;
+  transition:opacity .15s,transform .08s;white-space:nowrap;
+}
+button:active{transform:scale(.96)}
+button:disabled{opacity:.38;cursor:default}
+#btn-record{background:var(--accent);color:#fff}
+#btn-stop{background:var(--danger);color:#fff}
+.btn-ghost{background:var(--border);color:var(--text)}
+.btn-warn{background:rgba(251,191,36,.18);color:var(--amber);border:1px solid var(--amber)}
+
+/* ── Settings strip ──────────────────────────────────────────── */
+.settings{
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:8px 14px;
+}
+.sg{display:flex;align-items:center;gap:6px}
+.sg label{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.sg input[type=text]{
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  color:var(--text);font-size:.8rem;padding:4px 8px;width:170px;
+}
+select{
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  color:var(--text);font-size:.8rem;padding:4px 8px;cursor:pointer;
+}
+.dev-btns{display:flex;gap:3px}
+.dev-btn{
+  padding:4px 10px;font-size:.75rem;font-weight:600;border-radius:6px;
+  background:var(--bg);border:1px solid var(--border);color:var(--muted);cursor:pointer;
+}
+.dev-btn:hover{border-color:var(--accent);color:var(--text)}
+.dev-btn.sel-cpu{background:var(--accent);border-color:var(--accent);color:#fff}
+.dev-btn.sel-cuda{background:#16a34a;border-color:#16a34a;color:#fff}
+.dev-btn.sel-mps{background:#9333ea;border-color:#9333ea;color:#fff}
+
+.divider{width:1px;height:22px;background:var(--border);flex-shrink:0}
+
+/* Mode toggle */
+.mode-btns{display:flex;gap:3px}
+.mode-btn{
+  padding:4px 10px;font-size:.75rem;font-weight:600;border-radius:6px;
+  background:var(--bg);border:1px solid var(--border);color:var(--muted);cursor:pointer;
+}
+.mode-btn.active{background:var(--amber);border-color:var(--amber);color:#1a1a00;font-weight:700}
+
+/* Audio device picker */
+#audio-device-select{max-width:180px}
+
+/* ── Status bar ──────────────────────────────────────────────── */
+.status-bar{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:8px 14px;
+  display:flex;align-items:center;gap:10px;min-height:40px;flex-shrink:0;
+}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.dot.recording{background:var(--danger);animation:pulse 1s infinite}
+.dot.active{background:var(--accent);animation:pulse .6s infinite}
+.dot.done{background:var(--green)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+#status-text{font-size:.84rem;color:var(--muted)}
+
+/* Timer */
+#timer{font-size:.82rem;font-family:var(--mono);color:var(--text);min-width:52px}
+
+/* Volume meter */
+.meter-wrap{display:flex;align-items:center;gap:5px;margin-left:4px}
+.meter-bar{
+  width:80px;height:8px;background:var(--border);border-radius:4px;overflow:hidden;
+}
+.meter-fill{height:100%;width:0%;background:var(--green);border-radius:4px;transition:width .06s linear}
+
+/* Stage pills */
+.stage-list{display:flex;gap:5px;flex-wrap:wrap;margin-left:auto}
+.stage{
+  font-size:.68rem;padding:2px 8px;border-radius:20px;
+  border:1px solid var(--border);color:var(--muted);
+}
+.stage.active{border-color:var(--accent);color:var(--accent);background:rgba(108,99,255,.1)}
+.stage.done{border-color:var(--green);color:var(--green);background:rgba(74,222,128,.08)}
+
+/* ── Panels ──────────────────────────────────────────────────── */
+.panels{
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;
+  flex:1;overflow:hidden;min-height:0;
+}
+@media(max-width:800px){.panels{grid-template-columns:1fr}}
+.panel{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);display:flex;flex-direction:column;overflow:hidden;
+}
+.panel-header{
+  padding:8px 14px;font-size:.72rem;font-weight:700;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);
+  flex-shrink:0;display:flex;align-items:center;gap:8px;
+}
+.panel-actions{margin-left:auto;display:flex;gap:6px}
+.panel-body{flex:1;overflow-y:auto;padding:12px;font-size:.85rem;line-height:1.65}
+.panel-body::-webkit-scrollbar{width:4px}
+.panel-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+/* Markdown */
+.panel-body h1{font-size:1rem;margin:10px 0 5px}
+.panel-body h2{font-size:.9rem;margin:8px 0 4px;color:var(--accent)}
+.panel-body h3{font-size:.85rem;margin:6px 0 3px}
+.panel-body ul,.panel-body ol{padding-left:14px;margin:3px 0 6px}
+.panel-body li{margin-bottom:2px}
+.panel-body p{margin-bottom:6px}
+.panel-body hr{border:none;border-top:1px solid var(--border);margin:8px 0}
+
+/* Transcript lines */
+.t-line{margin-bottom:4px;font-family:var(--mono);font-size:.78rem}
+.t-time{color:var(--muted);margin-right:5px}
+.t-speaker{color:var(--accent);font-weight:700;margin-right:3px}
+
+.placeholder{color:var(--muted);font-style:italic;font-size:.82rem;margin-top:8px}
+
+/* ── Info modal ───────────────────────────────────────────────── */
+.modal-bg{
+  position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;
+  display:none;align-items:center;justify-content:center;
+}
+.modal-bg.open{display:flex}
+.modal{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:28px 32px;max-width:520px;width:90%;position:relative;
+}
+.modal h2{font-size:1rem;margin-bottom:16px;color:var(--text)}
+.modal-section{margin-bottom:16px}
+.modal-section h3{font-size:.82rem;font-weight:700;color:var(--accent);margin-bottom:5px}
+.modal-section p{font-size:.82rem;color:var(--muted);line-height:1.6}
+.modal-close{
+  position:absolute;top:14px;right:16px;background:none;
+  border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:2px 6px;
+}
+
+/* ── Crash banner ─────────────────────────────────────────────── */
+#crash-banner{
+  display:none;background:rgba(224,82,96,.15);border:1px solid var(--danger);
+  border-radius:var(--radius);padding:8px 14px;font-size:.82rem;color:var(--danger);
+  flex-shrink:0;
+}
+#crash-banner.visible{display:block}
+
+/* ── Model loading overlay ────────────────────────────────────── */
+#model-banner{
+  display:none;background:rgba(251,191,36,.1);border:1px solid var(--amber);
+  border-radius:var(--radius);padding:8px 14px;font-size:.82rem;color:var(--amber);
+  flex-shrink:0;align-items:center;gap:10px;
+}
+#model-banner.visible{display:flex}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ── Sidebar ────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">History</div>
+    <div class="history-list" id="history-list">
+      <p class="placeholder" style="padding:10px">No recordings yet.</p>
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- Top bar -->
+    <div class="topbar">
+      <h1>🎙 Audio Notes</h1>
+      <span id="device-badge">CPU · int8</span>
+      <div class="spacer"></div>
+      <button id="btn-record">● Record</button>
+      <button id="btn-stop" disabled>■ Stop</button>
+    </div>
+
+    <!-- Crash banner -->
+    <div id="crash-banner"></div>
+
+    <!-- Model loading banner -->
+    <div id="model-banner">
+      <span id="model-banner-text">Loading models…</span>
+      <button id="btn-load-models" class="btn-warn" style="margin-left:auto">Load Models</button>
+    </div>
+
+    <!-- Settings strip -->
+    <div class="settings">
+
+      <!-- Output path -->
+      <div class="sg">
+        <label>Output</label>
+        <input id="output-path" type="text" value="{{ output_path }}"/>
+        <button class="btn-ghost" id="btn-set-path" style="padding:4px 10px;font-size:.75rem">Set</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Audio device -->
+      <div class="sg">
+        <label>Mic</label>
+        <select id="audio-device-select"><option value="">Loading…</option></select>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Whisper device -->
+      <div class="sg">
+        <label>Whisper</label>
+        <div class="dev-btns">
+          <button class="dev-btn" data-device="cpu">CPU</button>
+          <button class="dev-btn" data-device="cuda">CUDA</button>
+          <button class="dev-btn" data-device="mps">MPS</button>
+        </div>
+        <select id="compute-type">
+          <option value="int8">int8</option>
+          <option value="float16">float16</option>
+          <option value="float32">float32</option>
+        </select>
+        <button class="btn-ghost" id="btn-apply-device" style="padding:4px 10px;font-size:.75rem">Apply</button>
+        <button class="btn-ghost" id="btn-info-device" style="padding:4px 8px;font-size:.75rem" title="What do these mean?">?</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Startup mode -->
+      <div class="sg">
+        <label>Startup</label>
+        <div class="mode-btns">
+          <button class="mode-btn" data-mode="auto">Auto</button>
+          <button class="mode-btn" data-mode="manual">Manual</button>
+        </div>
+        <button class="btn-ghost" id="btn-info-mode" style="padding:4px 8px;font-size:.75rem" title="What do these mean?">?</button>
+      </div>
+
+    </div>
+
+    <!-- Status bar -->
+    <div class="status-bar">
+      <div class="dot" id="dot"></div>
+      <span id="status-text">Idle</span>
+      <span id="timer" style="display:none">00:00</span>
+      <div class="meter-wrap" id="meter-wrap" style="display:none">
+        <div class="meter-bar"><div class="meter-fill" id="meter-fill"></div></div>
+      </div>
+      <div class="stage-list">
+        <span class="stage" id="s-transcribing">Transcribing</span>
+        <span class="stage" id="s-chunking">Dividing</span>
+        <span class="stage" id="s-summarizing">Summarizing</span>
+      </div>
+    </div>
+
+    <!-- Two panels -->
+    <div class="panels">
+      <div class="panel">
+        <div class="panel-header">
+          Notes <span style="color:var(--accent);font-size:.65rem">phi3:mini</span>
+          <div class="panel-actions">
+            <button class="btn-ghost" id="btn-export" style="padding:3px 10px;font-size:.72rem;display:none">⬇ Export .md</button>
+          </div>
+        </div>
+        <div class="panel-body" id="notes-panel">
+          <p class="placeholder">Notes will appear after processing completes.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          Transcript <span style="color:var(--accent);font-size:.65rem">WhisperX · en</span>
+          <div class="panel-actions">
+            <button class="btn-ghost" id="btn-export-transcript" style="padding:3px 10px;font-size:.72rem;display:none">⬇ Export .txt</button>
+          </div>
+        </div>
+        <div class="panel-body" id="transcript-panel">
+          <p class="placeholder">Transcript will appear after recording is processed.</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /shell -->
+
+<!-- ── Info Modal: Device ──────────────────────────────────────── -->
+<div class="modal-bg" id="modal-device">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-device')">✕</button>
+    <h2>WhisperX Compute Device</h2>
+    <div class="modal-section">
+      <h3>CPU · int8</h3>
+      <p>Runs on your processor using 8-bit integer quantization. Works everywhere, no GPU required. Expect ~3–10× slower than real-time for medium-length recordings. Safe default.</p>
+    </div>
+    <div class="modal-section">
+      <h3>CUDA · float16</h3>
+      <p>Runs on an NVIDIA GPU. Requires the container to be built with <code>GPU=1</code> and the <code>deploy: nvidia</code> block uncommented in docker-compose.yml. Typically 5–20× faster than CPU. Use float16 unless you hit NaN issues, in which case try float32.</p>
+    </div>
+    <div class="modal-section">
+      <h3>MPS · float32</h3>
+      <p>Apple Silicon GPU (Metal). Not accessible inside Docker on macOS — Docker runs in a Linux VM with no Metal passthrough. Selecting MPS in a Docker container will silently fall back to CPU. Only useful if running the app natively outside Docker on a Mac.</p>
+    </div>
+    <div class="modal-section">
+      <h3>Important</h3>
+      <p>Models are loaded once at startup. Changing the device here takes effect on the <strong>next container restart</strong>. You will see a warning in the status bar if you try to use a device different from the one currently loaded.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Info Modal: Startup Mode ────────────────────────────────── -->
+<div class="modal-bg" id="modal-mode">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-mode')">✕</button>
+    <h2>WhisperX Startup Mode</h2>
+    <div class="modal-section">
+      <h3>Auto (recommended)</h3>
+      <p>WhisperX and phi3:mini load automatically when the container starts. Recording is available as soon as the page loads. Startup takes longer (30–90 seconds depending on hardware) while models download and warm up.</p>
+    </div>
+    <div class="modal-section">
+      <h3>Manual</h3>
+      <p>Models are <strong>not</strong> loaded at startup. The container boots instantly. You must click <strong>Load Models</strong> in the UI before you can record. Loading takes the same 30–90 seconds but only when you choose to trigger it. Useful if you want fast container startup and only load models when needed.</p>
+    </div>
+    <div class="modal-section">
+      <h3>What to expect</h3>
+      <p>In either mode, only one recording job can run at a time. A second Record button press while a job is processing will be blocked. Wait for the current job to reach "Done" before starting the next recording.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Marked.js ────────────────────────────────────────────────────────────────
+let markedReady = false;
+const ms = document.createElement('script');
+ms.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+ms.onload  = () => { markedReady = true; };
+ms.onerror = () => {
+  // CDN failed — notes render as plain preformatted text gracefully.
+  console.warn('Marked.js CDN load failed — notes will display as plain text.');
+};
+document.head.appendChild(ms);
+function renderMd(md) { return (markedReady && window.marked) ? marked.parse(md) : `<pre>${esc(md)}</pre>`; }
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Stop the status-poll interval when the page unloads to prevent orphaned
+// setInterval callbacks from firing after navigation or tab close.
+window.addEventListener('beforeunload', stopPolling);
+
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+const btnRecord      = document.getElementById('btn-record');
+const btnStop        = document.getElementById('btn-stop');
+const btnSetPath     = document.getElementById('btn-set-path');
+const btnApplyDevice = document.getElementById('btn-apply-device');
+const btnInfoDevice  = document.getElementById('btn-info-device');
+const btnInfoMode    = document.getElementById('btn-info-mode');
+const btnExport           = document.getElementById('btn-export');
+const btnExportTranscript = document.getElementById('btn-export-transcript');
+const btnLoadModels  = document.getElementById('btn-load-models');
+const pathInput      = document.getElementById('output-path');
+const computeSel     = document.getElementById('compute-type');
+const audioDevSel    = document.getElementById('audio-device-select');
+const dot            = document.getElementById('dot');
+const statusText     = document.getElementById('status-text');
+const timerEl        = document.getElementById('timer');
+const meterWrap      = document.getElementById('meter-wrap');
+const meterFill      = document.getElementById('meter-fill');
+const notesPanel     = document.getElementById('notes-panel');
+const transcriptPanel= document.getElementById('transcript-panel');
+const deviceBadge    = document.getElementById('device-badge');
+const crashBanner    = document.getElementById('crash-banner');
+const modelBanner    = document.getElementById('model-banner');
+const modelBannerTxt = document.getElementById('model-banner-text');
+const historyList    = document.getElementById('history-list');
+
+const stages = {
+  transcribing: document.getElementById('s-transcribing'),
+  chunking:     document.getElementById('s-chunking'),
+  summarizing:  document.getElementById('s-summarizing'),
+};
+
+// ── State ────────────────────────────────────────────────────────────────────
+let currentDevice     = '{{ device }}';
+let currentCompute    = '{{ compute_type }}';
+let currentMode       = '{{ whisperx_mode }}';
+let modelsLoaded      = {{ 'true' if models_loaded else 'false' }};
+let currentJobId      = null;
+let statusPollId      = null;
+let recordStart       = null;
+
+const COMPUTE_DEFS = { cpu:'int8', cuda:'float16', mps:'float32' };
+const DEV_CLS      = { cpu:'sel-cpu', cuda:'sel-cuda', mps:'sel-mps' };
+
+// ── Audio device listing ──────────────────────────────────────────────────────
+async function loadAudioDevices() {
+  try {
+    const res  = await fetch('/devices');
+    const data = await res.json();
+    audioDevSel.innerHTML = '';
+    // Default loopback option
+    const defOpt = document.createElement('option');
+    defOpt.value = ''; defOpt.textContent = '⟳ Default Loopback';
+    audioDevSel.appendChild(defOpt);
+    (data.devices || []).forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = (d.loopback ? '⟲ ' : '🎤 ') + d.name;
+      audioDevSel.appendChild(opt);
+    });
+  } catch(e) {
+    audioDevSel.innerHTML = '<option value="">Could not load devices</option>';
+  }
+}
+loadAudioDevices();
+
+// ── Device UI ─────────────────────────────────────────────────────────────────
+function applyDeviceUI(device, compute) {
+  currentDevice  = device;
+  currentCompute = compute;
+  document.querySelectorAll('.dev-btn').forEach(b => {
+    b.className = 'dev-btn';
+    if (b.dataset.device === device) b.classList.add(DEV_CLS[device] || 'sel-cpu');
+  });
+  computeSel.value = compute;
+  deviceBadge.textContent = `${device.toUpperCase()} · ${compute}`;
+}
+applyDeviceUI(currentDevice, currentCompute);
+
+document.querySelectorAll('.dev-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    const dev = b.dataset.device;
+    computeSel.value = COMPUTE_DEFS[dev];
+    document.querySelectorAll('.dev-btn').forEach(x => x.className = 'dev-btn');
+    b.classList.add(DEV_CLS[dev] || 'sel-cpu');
+    currentDevice  = dev;
+    currentCompute = COMPUTE_DEFS[dev];
+  });
+});
+
+btnApplyDevice.addEventListener('click', async () => {
+  const res = await fetch('/set-device', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ device: currentDevice, compute_type: computeSel.value }),
+  });
+  if (res.ok) {
+    const d = await res.json();
+    applyDeviceUI(d.device, d.compute_type);
+    btnApplyDevice.textContent = '✓';
+    setTimeout(() => { btnApplyDevice.textContent = 'Apply'; }, 1500);
+  }
+});
+
+// ── Mode UI ───────────────────────────────────────────────────────────────────
+function applyModeUI(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.className = 'mode-btn' + (b.dataset.mode === mode ? ' active' : '');
+  });
+}
+applyModeUI(currentMode);
+
+document.querySelectorAll('.mode-btn').forEach(b => {
+  b.addEventListener('click', async () => {
+    const mode = b.dataset.mode;
+    applyModeUI(mode);
+    await fetch('/set-mode', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ mode }),
+    });
+  });
+});
+
+// ── Model loading ─────────────────────────────────────────────────────────────
+function setModelsLoaded(val) {
+  modelsLoaded = val;
+  if (val) {
+    modelBanner.classList.remove('visible');
+    btnRecord.disabled = false;
+  } else {
+    modelBannerTxt.textContent = 'Models not loaded. Click "Load Models" to begin.';
+    modelBanner.classList.add('visible');
+    btnRecord.disabled = true;
+  }
+}
+setModelsLoaded(modelsLoaded);
+
+btnLoadModels.addEventListener('click', async () => {
+  modelBannerTxt.textContent = 'Loading WhisperX + phi3:mini… (this may take 30–90 s)';
+  btnLoadModels.disabled = true;
+  await fetch('/load-models', { method:'POST' });
+  // WS will fire models_ready
+});
+
+// ── Info modals ───────────────────────────────────────────────────────────────
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+btnInfoDevice.addEventListener('click', () => openModal('modal-device'));
+btnInfoMode.addEventListener('click',   () => openModal('modal-mode'));
+document.querySelectorAll('.modal-bg').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+});
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+let ws;
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = async (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.event === 'init') {
+      applyDeviceUI(msg.device, msg.compute_type);
+      applyModeUI(msg.whisperx_mode || 'auto');
+      if (msg.output_path) pathInput.value = msg.output_path;
+      setModelsLoaded(msg.models_loaded);
+      return;
+    }
+    if (msg.event === 'device_changed') { applyDeviceUI(msg.device, msg.compute_type); return; }
+    if (msg.event === 'models_loading') { modelBannerTxt.textContent = 'Loading models…'; return; }
+    if (msg.event === 'models_ready')   { setModelsLoaded(true); return; }
+
+    if (msg.event === 'error') {
+      crashBanner.textContent = '⚠ ' + msg.detail;
+      crashBanner.classList.add('visible');
+      setStatus('Pipeline crashed — recovered', '');
+      clearStages();
+      stopPolling();
+      return;
+    }
+
+    if (msg.event === 'warn') {
+      crashBanner.textContent = '⚠ ' + msg.message;
+      crashBanner.classList.add('visible');
+      return;
+    }
+
+    switch (msg.status || msg.event) {
+      case 'recording_started':
+      case 'recording':
+        crashBanner.classList.remove('visible');
+        setStatus('Recording…', 'recording');
+        clearStages();
+        notesPanel.innerHTML      = '<p class="placeholder">Notes will appear after processing.</p>';
+        transcriptPanel.innerHTML = '<p class="placeholder">Transcript will appear after recording stops.</p>';
+        btnExport.style.display   = 'none';
+        startPolling();
+        break;
+      case 'recording_stopped':
+      case 'processing_started':
+      case 'stopped':
+        setStatus('Processing…', 'active');
+        stopPolling();
+        break;
+      case 'transcribing':
+        setStatus(`Transcribing… [${(msg.device||'').toUpperCase()||'?'}]`, 'active');
+        setStage('transcribing', 'active');
+        break;
+      case 'transcript_ready':  // kept for compat
+        setStage('transcribing', 'done');
+        setStatus('Transcript ready — generating notes…', 'active');
+        currentJobId = msg.id;
+        await fetchTranscript(msg.id);
+        btnExportTranscript.style.display = 'inline-block';
+        break;
+      case 'chunking':
+        setStatus('Dividing into token-sized chunks…', 'active');
+        setStage('chunking', 'active');
+        break;
+      case 'summarizing':
+        setStage('chunking', 'done');
+        setStatus(`Summarizing… chunk ${msg.chunk} of ${msg.of}`, 'active');
+        setStage('summarizing', 'active');
+        break;
+      case 'compiling':
+        setStatus('Compiling master notes…', 'active');
+        break;
+      case 'note_ready':
+        setStage('summarizing', 'done');
+        setStatus('Done', 'done');
+        currentJobId = msg.id;
+        await fetchNotes(msg.id);
+        btnExport.style.display = 'inline-block';
+        refreshHistory();
+        break;
+      case 'error':
+        setStatus(`Error: ${msg.detail || 'unknown'}`, '');
+        clearStages();
+        refreshHistory();
+        break;
+    }
+  };
+  ws.onclose = () => setTimeout(connectWS, 3000);
+}
+connectWS();
+
+// ── Status polling (timer + meter) ────────────────────────────────────────────
+function startPolling() {
+  stopPolling();
+  timerEl.style.display  = 'inline';
+  meterWrap.style.display= 'flex';
+  statusPollId = setInterval(async () => {
+    try {
+      const r = await fetch('/status');
+      const d = await r.json();
+      if (d.recording) {
+        const t  = Math.round(d.elapsed);
+        const mm = Math.floor(t/60).toString().padStart(2,'0');
+        const ss = (t%60).toString().padStart(2,'0');
+        timerEl.textContent = `${mm}:${ss}`;
+        // Scale peak (0–1 RMS) to 0–100% bar, capped, with mild boost for visibility
+        const pct = Math.min(100, d.peak * 400);
+        meterFill.style.width = pct + '%';
+        meterFill.style.background = pct > 75 ? 'var(--danger)' : pct > 40 ? 'var(--amber)' : 'var(--green)';
+      } else {
+        stopPolling();
+      }
+    } catch(_) {}
+  }, 200);
+}
+function stopPolling() {
+  clearInterval(statusPollId);
+  timerEl.style.display   = 'none';
+  meterWrap.style.display = 'none';
+  meterFill.style.width   = '0%';
+}
+
+// ── History sidebar ───────────────────────────────────────────────────────────
+async function refreshHistory() {
+  try {
+    const res  = await fetch('/history');
+    const data = await res.json();
+    if (!data.jobs || data.jobs.length === 0) {
+      historyList.innerHTML = '<p class="placeholder" style="padding:10px">No recordings yet.</p>';
+      return;
+    }
+    historyList.innerHTML = data.jobs.map(j => {
+      const ts     = new Date(j.created_at).toLocaleString([], {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      const isProc = ['transcribing','chunking','summarizing','compiling','queued'].includes(j.status);
+      const cls    = j.status === 'done' ? 'done' : j.status === 'error' ? 'error' : 'processing';
+      const label  = j.status === 'transcript_ready' ? 'notes…' : j.status;
+      return `<div class="hist-item${j.id === currentJobId ? ' active' : ''}" data-id="${j.id}" onclick="loadJob('${j.id}')">
+        <span class="hist-ts">${ts}</span>
+        <span class="hist-status ${cls}">${label}</span>
+      </div>`;
+    }).join('');
+  } catch(_) {}
+}
+refreshHistory();
+
+async function loadJob(jobId) {
+  currentJobId = jobId;
+  btnExport.style.display           = 'none';
+  btnExportTranscript.style.display = 'none';
+  notesPanel.innerHTML      = '<p class="placeholder">Loading…</p>';
+  transcriptPanel.innerHTML = '<p class="placeholder">Loading…</p>';
+  // Refresh sidebar active state
+  document.querySelectorAll('.hist-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === jobId);
+  });
+  await Promise.all([fetchTranscript(jobId), fetchNotes(jobId)]);
+}
+
+// ── Fetch helpers ─────────────────────────────────────────────────────────────
+async function fetchTranscript(jobId) {
+  try {
+    const res = await fetch(`/transcript/${jobId}`);
+    if (!res.ok) return;
+    renderTranscript((await res.json()).segments);
+    btnExportTranscript.style.display = 'inline-block';
+  } catch(_) {}
+}
+function renderTranscript(segs) {
+  if (!segs || !segs.length) {
+    transcriptPanel.innerHTML = '<p class="placeholder">No transcript content.</p>'; return;
+  }
+  transcriptPanel.innerHTML = segs.map(seg => {
+    const t = Math.round(seg.start);
+    const m = Math.floor(t/60).toString().padStart(2,'0');
+    const s = (t%60).toString().padStart(2,'0');
+    return `<div class="t-line"><span class="t-time">[${m}:${s}]</span><span class="t-speaker">${esc(seg.speaker||'UNKNOWN')}:</span><span>${esc(seg.text)}</span></div>`;
+  }).join('');
+}
+
+async function fetchNotes(jobId) {
+  try {
+    const res = await fetch(`/notes/${jobId}`);
+    if (!res.ok) { notesPanel.innerHTML = '<p class="placeholder">No notes yet.</p>'; return; }
+    const data = await res.json();
+    notesPanel.innerHTML = renderMd(data.content || '');
+    btnExport.style.display = 'inline-block';
+  } catch(_) {}
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+btnExport.addEventListener('click', () => {
+  if (currentJobId) window.open(`/export/notes/${currentJobId}`, '_blank');
+});
+btnExportTranscript.addEventListener('click', () => {
+  if (currentJobId) window.open(`/export/transcript/${currentJobId}`, '_blank');
+});
+
+// ── Record controls ───────────────────────────────────────────────────────────
+btnRecord.addEventListener('click', async () => {
+  if (!modelsLoaded) return;
+  const mic = audioDevSel.value || null;
+  const res = await fetch('/start-recording', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ mic }),
+  });
+  if (res.ok) {
+    btnRecord.disabled = true;
+    btnStop.disabled   = false;
+  } else {
+    const d = await res.json();
+    crashBanner.textContent = '⚠ Could not start: ' + (d.detail || d.status);
+    crashBanner.classList.add('visible');
+  }
+});
+
+btnStop.addEventListener('click', async () => {
+  const res = await fetch('/stop-recording', { method:'POST' });
+  if (res.ok) {
+    btnStop.disabled   = true;
+    btnRecord.disabled = false;
+  }
+});
+
+// ── Output path ───────────────────────────────────────────────────────────────
+btnSetPath.addEventListener('click', async () => {
+  const path = pathInput.value.trim();
+  if (!path) return;
+  const res = await fetch('/set-output-path', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ path }),
+  });
+  if (res.ok) { btnSetPath.textContent = '✓'; setTimeout(()=>{btnSetPath.textContent='Set'},1500); }
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function clearStages() { Object.values(stages).forEach(s => s.className = 'stage'); }
+function setStage(n,st){ if(stages[n]) stages[n].className = `stage ${st}`; }
+function setStatus(msg, dotClass='') {
+  statusText.textContent = msg;
+  dot.className = 'dot' + (dotClass ? ` ${dotClass}` : '');
+}
+</script>
+</body>
+</html>
