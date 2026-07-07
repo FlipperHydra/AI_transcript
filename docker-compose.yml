@@ -18,9 +18,9 @@ services:
         OLLAMA_PID=$!
         echo "[ollama-init] Waiting for server..."
         until wget -qO- http://localhost:11434/api/version >/dev/null 2>&1; do sleep 1; done
-        echo "[ollama-init] Server ready. Ensuring phi3:mini is present..."
-        /bin/ollama pull phi3:mini
-        echo "[ollama-init] phi3:mini ready. Handing off to serve process."
+        echo "[ollama-init] Server ready. Ensuring gemma3:270m is present..."
+        /bin/ollama pull gemma3:270m
+        echo "[ollama-init] gemma3:270m ready. Handing off to serve process."
         wait $OLLAMA_PID
 
     # Healthcheck verifies two things:
@@ -33,7 +33,7 @@ services:
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "wget -qO- http://localhost:11434/api/tags 2>/dev/null | grep -q 'phi3' || exit 1"
+        - "wget -qO- http://localhost:11434/api/tags 2>/dev/null | grep -q 'gemma3' || exit 1"
       interval: 5s
       timeout: 10s
       retries: 20

@@ -1,8 +1,9 @@
 """
 notes_gen.py — Token-aware chunking, rolling context summarization, final compile.
 
+Model: gemma3:270m (292MB, 32K context window, text-only)
 Fix: preload_ollama() now uses a 30-second timeout so it cannot block
-forever when ollama is still pulling phi3:mini on first startup.
+forever when ollama is still pulling the model on first startup.
 """
 
 import asyncio
@@ -17,8 +18,8 @@ import ollama
 logger = logging.getLogger(__name__)
 
 OLLAMA_HOST   = os.environ.get("OLLAMA_HOST", "http://ollama:11434")
-MODEL         = "phi3:mini"
-MAX_TOKENS    = 2800   # safe ceiling for phi3:mini 4K context
+MODEL         = "gemma3:270m"
+MAX_TOKENS    = 28000  # safe ceiling for gemma3:270m 32K context (leaves ~4K headroom)
 CHUNK_SECONDS = 300    # 5-minute time-based fallback
 
 # ── Module-level singletons ───────────────────────────────────────────────────
@@ -55,14 +56,14 @@ def preload_ollama() -> None:
     If ollama isn't ready yet (still pulling the model), logs a warning
     and continues — the first real job will surface the error then.
     """
-    logger.info("[notes_gen] Pinging ollama / phi3:mini (timeout=30s)...")
+    logger.info("[notes_gen] Pinging ollama / gemma3:270m (timeout=30s)...")
     try:
         _ollama_chat_with_retry(
             messages=[{"role": "user", "content": "ok"}],
             options={"num_predict": 1, "temperature": 0},
             max_retries=0,  # startup ping — no retry; we just log and move on
         )
-        logger.info("[notes_gen] phi3:mini is ready")
+        logger.info("[notes_gen] gemma3:270m is ready")
     except Exception as exc:
         logger.warning(
             "[notes_gen] Could not reach ollama at startup: %s — "
