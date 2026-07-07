@@ -19,9 +19,10 @@ import whisperx.diarize  # explicit submodule import — DiarizationPipeline mov
 
 logger = logging.getLogger(__name__)
 
-HF_TOKEN    = os.environ.get("HF_TOKEN", "")
-LANGUAGE    = "en"
-BATCH_SIZE  = 4   # halved from 8 — cuts peak RAM ~50% with no quality impact
+HF_TOKEN         = os.environ.get("HF_TOKEN", "")
+LANGUAGE         = "en"
+BATCH_SIZE       = 4   # halved from 8 — cuts peak RAM ~50% with no quality impact
+DIARIZATION_MODEL = "pyannote/speaker-diarization-3.1"  # pinned — community-1 is separately gated
 
 _COMPUTE_DEFAULTS: dict[str, str] = {
     "cpu":  "int8",
@@ -59,7 +60,9 @@ def preload(config: dict) -> None:
     device, compute_type = _resolve_device(config)
     logger.info("[transcriber] Preloading WhisperX on device=%s compute_type=%s", device, compute_type)
 
-    _whisper_model = whisperx.load_model("small", device, compute_type=compute_type)  # ~1GB RAM vs ~3GB for medium
+    _whisper_model = whisperx.load_model(
+        "small", device, compute_type=compute_type, language=LANGUAGE
+    )  # language pre-set avoids per-file detection overhead
     logger.info("[transcriber] Whisper model ready")
 
     _align_model, _align_metadata = whisperx.load_align_model(
@@ -69,9 +72,9 @@ def preload(config: dict) -> None:
 
     if HF_TOKEN:
         _diarize_model = whisperx.diarize.DiarizationPipeline(
-            token=HF_TOKEN, device=device
+            model_name=DIARIZATION_MODEL, token=HF_TOKEN, device=device
         )
-        logger.info("[transcriber] Diarization pipeline ready")
+        logger.info("[transcriber] Diarization pipeline ready (%s)", DIARIZATION_MODEL)
     else:
         logger.warning("[transcriber] HF_TOKEN not set — diarization disabled")
 

@@ -236,14 +236,17 @@ def _validate_output_path(raw: str) -> Path:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("index.html", {
-        "request":       request,
-        "output_path":   config.get("output_path", str(DEFAULT_OUTPUT)),
-        "device":        config.get("device", "cpu"),
-        "compute_type":  config.get("compute_type", "int8"),
-        "whisperx_mode": config.get("whisperx_mode", "auto"),
-        "models_loaded": models_loaded,
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "output_path":   config.get("output_path", str(DEFAULT_OUTPUT)),
+            "device":        config.get("device", "cpu"),
+            "compute_type":  config.get("compute_type", "int8"),
+            "whisperx_mode": config.get("whisperx_mode", "auto"),
+            "models_loaded": models_loaded,
+        },
+    )
 
 
 @app.get("/health")
