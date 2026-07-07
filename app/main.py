@@ -173,13 +173,22 @@ recorder.on_complete = _recorder_complete
 
 @app.on_event("startup")
 async def startup() -> None:
-    global models_loaded
     init_db()
 
     mode = config.get("whisperx_mode", "auto")
     if mode == "auto":
-        logger.info("[startup] auto mode — preloading models")
-        loop = asyncio.get_running_loop()
+        logger.info("[startup] auto mode — preloading models in background")
+        asyncio.create_task(_background_preload())
+    else:
+        logger.info("[startup] manual mode — models not loaded yet")
+
+
+async def _background_preload() -> None:
+    """Load WhisperX + Ollama in the background so uvicorn serves immediately."""
+    global models_loaded
+    loop = asyncio.get_running_loop()
+    try:
+        await ws_broadcast({"event": "models_loading"})
         await loop.run_in_executor(None, lambda: (
             transcriber_preload(config),
             preload_ollama(),
@@ -187,8 +196,9 @@ async def startup() -> None:
         models_loaded = True
         await ws_broadcast({"event": "models_ready"})
         logger.info("[startup] Models ready")
-    else:
-        logger.info("[startup] manual mode — models not loaded yet")
+    except Exception as exc:
+        logger.exception("[startup] Background preload failed: %s", exc)
+        await ws_broadcast({"event": "error", "detail": f"Model preload failed: {exc}"})
 
 
 # ── Path helpers ──────────────────────────────────────────────────────────────
@@ -276,18 +286,10 @@ async def status() -> JSONResponse:
 
 @app.post("/load-models")
 async def load_models() -> JSONResponse:
-    global models_loaded
     if models_loaded:
         return JSONResponse({"status": "already_loaded"})
-    loop = asyncio.get_running_loop()
-    await ws_broadcast({"event": "models_loading"})
-    await loop.run_in_executor(None, lambda: (
-        transcriber_preload(config),
-        preload_ollama(),
-    ))
-    models_loaded = True
-    await ws_broadcast({"event": "models_ready"})
-    return JSONResponse({"status": "loaded"})
+    asyncio.create_task(_background_preload())
+    return JSONResponse({"status": "loading"})
 
 
 @app.post("/start-recording")

@@ -52,6 +52,7 @@ services:
     volumes:
       - ./output:/app/output
       - whisperx_cache:/root/.cache/whisper
+      - torch_cache:/root/.cache/torch
     environment:
       - HF_TOKEN=${HF_TOKEN}
       - OLLAMA_HOST=http://ollama:11434
@@ -70,3 +71,4 @@ services:
 volumes:
   ollama_data:
   whisperx_cache:
+  torch_cache:
