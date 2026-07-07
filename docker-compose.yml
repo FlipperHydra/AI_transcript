@@ -1,4 +1,37 @@
 services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Entrypoint starts the server, waits until it responds, then pulls
+    # phi3:mini if it isn't already cached in the volume. On every restart
+    # after the first the pull is a no-op (~1 second check). No custom
+    # Dockerfile needed — the official image is used as-is.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        echo "Waiting for ollama..."
+        until wget -qO- http://localhost:11434/ >/dev/null 2>&1; do sleep 1; done
+        echo "ollama ready — ensuring phi3:mini is present..."
+        ollama pull phi3:mini
+        echo "phi3:mini ready."
+        wait
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:11434/"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 3500m
+
   app:
     build:
       context: .
@@ -13,32 +46,14 @@ services:
       - HF_TOKEN=${HF_TOKEN}
       - OLLAMA_HOST=http://ollama:11434
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     restart: unless-stopped
     deploy:
       resources:
         limits:
           cpus: "4"
           memory: 6g
-
-  ollama:
-    # Built from ollama.Dockerfile — phi3:mini is baked in at build time.
-    # No model pull on startup; the container is ready the moment it starts.
-    build:
-      context: .
-      dockerfile: ollama.Dockerfile
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    # Simple serve — no pull needed, model is already in the image.
-    command: ollama serve
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: "2"
-          memory: 3500m
 
 volumes:
   ollama_data:
