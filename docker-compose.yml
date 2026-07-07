@@ -15,13 +15,13 @@ services:
     command:
       - |
         /bin/ollama serve &
-        OLLAMA_PID=$!
+        OLLAMA_PID=$$!
         echo "[ollama-init] Waiting for server..."
         until wget -qO- http://localhost:11434/api/version >/dev/null 2>&1; do sleep 1; done
         echo "[ollama-init] Server ready. Ensuring gemma3:270m is present..."
         /bin/ollama pull gemma3:270m
         echo "[ollama-init] gemma3:270m ready. Handing off to serve process."
-        wait $OLLAMA_PID
+        wait $$OLLAMA_PID
 
     # Healthcheck verifies two things:
     #   1. The server is responding (/api/version — lightest possible endpoint)
