@@ -236,11 +236,13 @@ async def index(request: Request) -> HTMLResponse:
         request=request,
         name="index.html",
         context={
-            "output_path":   config.get("output_path", str(DEFAULT_OUTPUT)),
-            "device":        config.get("device", "cpu"),
-            "compute_type":  config.get("compute_type", "int8"),
-            "whisperx_mode": config.get("whisperx_mode", "auto"),
-            "models_loaded": models_loaded,
+            "output_path":    config.get("output_path", str(DEFAULT_OUTPUT)),
+            "device":         config.get("device", "cpu"),
+            "compute_type":   config.get("compute_type", "int8"),
+            "whisperx_mode":  config.get("whisperx_mode", "auto"),
+            "models_loaded":  models_loaded,
+            "hf_token_set":   bool(config.get("hf_token", "").strip()),
+            "diarization_ok": diarization_enabled(),
         },
     )
 
@@ -253,11 +255,13 @@ async def health() -> JSONResponse:
 @app.get("/config")
 async def get_config() -> JSONResponse:
     return JSONResponse({
-        "output_path":   config.get("output_path"),
-        "device":        config.get("device", "cpu"),
-        "compute_type":  config.get("compute_type", "int8"),
-        "whisperx_mode": config.get("whisperx_mode", "auto"),
-        "models_loaded": models_loaded,
+        "output_path":    config.get("output_path"),
+        "device":         config.get("device", "cpu"),
+        "compute_type":   config.get("compute_type", "int8"),
+        "whisperx_mode":  config.get("whisperx_mode", "auto"),
+        "models_loaded":  models_loaded,
+        "hf_token_set":   bool(config.get("hf_token", "").strip()),
+        "diarization_ok": diarization_enabled(),
     })
 
 
@@ -281,6 +285,40 @@ async def status() -> JSONResponse:
         "is_processing": is_processing,
         "models_loaded": models_loaded,
     })
+
+
+@app.post("/set-hf-token")
+async def set_hf_token(body: dict) -> JSONResponse:
+    """
+    Save HF token to config.json and immediately hot-load the diarization
+    pipeline — no container restart needed.
+    Token is stored in config.json (persists across restarts).
+    Never echoed back in responses — only a boolean status is returned.
+    """
+    token = body.get("token", "").strip()
+    if not token:
+        raise HTTPException(status_code=422, detail="token is required")
+
+    config["hf_token"] = token
+    _schedule_save(config)
+
+    # Hot-load diarization on the currently loaded device (cpu fallback)
+    from app import transcriber as _t
+    device = _t._loaded_device or config.get("device", "cpu")
+
+    loop = asyncio.get_running_loop()
+    ok = await loop.run_in_executor(None, load_diarization, token, device)
+
+    if ok:
+        await ws_broadcast({"event": "diarization_ready"})
+        logger.info("[set-hf-token] Diarization pipeline loaded successfully")
+        return JSONResponse({"status": "ok", "diarization": True})
+    else:
+        await ws_broadcast({"event": "hf_token_missing"})
+        return JSONResponse(
+            {"status": "error", "detail": "Token saved but diarization failed — check token permissions."},
+            status_code=400,
+        )
 
 
 @app.post("/load-models")
@@ -417,12 +455,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     active_connections.append(ws)
     await ws.send_json({
-        "event":         "init",
-        "device":        config.get("device", "cpu"),
-        "compute_type":  config.get("compute_type", "int8"),
-        "output_path":   config.get("output_path", str(DEFAULT_OUTPUT)),
-        "whisperx_mode": config.get("whisperx_mode", "auto"),
-        "models_loaded": models_loaded,
+        "event":          "init",
+        "device":         config.get("device", "cpu"),
+        "compute_type":   config.get("compute_type", "int8"),
+        "output_path":    config.get("output_path", str(DEFAULT_OUTPUT)),
+        "whisperx_mode":  config.get("whisperx_mode", "auto"),
+        "models_loaded":  models_loaded,
+        "hf_token_set":   bool(config.get("hf_token", "").strip()),
+        "diarization_ok": diarization_enabled(),
     })
     try:
         while True:

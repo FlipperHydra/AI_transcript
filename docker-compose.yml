@@ -55,8 +55,8 @@ services:
       - whisperx_cache:/root/.cache/whisper
       - torch_cache:/root/.cache/torch
     environment:
-      - HF_TOKEN=${HF_TOKEN}
       - OLLAMA_HOST=http://ollama:11434
+      # HF_TOKEN is set via the web UI and stored in config.json — no env var needed
     depends_on:
       ollama:
         condition: service_healthy

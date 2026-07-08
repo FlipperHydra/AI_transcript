@@ -1,17 +1,19 @@
 """
 transcriber.py — WhisperX 3-step pipeline with model singleton.
 
-Changes:
 - whisperx model is loaded ONCE at startup (via preload()) and cached.
   Subsequent jobs reuse the cached model — no 10-30s reload per job.
-- Language is hardcoded to English ("en") as requested.
+- Language is hardcoded to English ("en").
 - Device resolved from live config at call time.
-- Diarization pipeline also cached after first load.
+- Diarization pipeline cached after first load; can be hot-swapped via
+  load_diarization(token, device) without restarting the container.
+- HF token is NOT read from the environment — it comes from config.json
+  and is set by the user through the web UI.
 """
 
 import asyncio
 import logging
-import os
+import threading
 from typing import Callable, Coroutine, Any
 
 import whisperx
@@ -19,9 +21,8 @@ import whisperx.diarize  # explicit submodule import — DiarizationPipeline mov
 
 logger = logging.getLogger(__name__)
 
-HF_TOKEN         = os.environ.get("HF_TOKEN", "")
-LANGUAGE         = "en"
-BATCH_SIZE       = 4   # halved from 8 — cuts peak RAM ~50% with no quality impact
+LANGUAGE          = "en"
+BATCH_SIZE        = 4   # halved from 8 — cuts peak RAM ~50% with no quality impact
 DIARIZATION_MODEL = "pyannote/speaker-diarization-3.1"  # pinned — community-1 is separately gated
 
 _COMPUTE_DEFAULTS: dict[str, str] = {
@@ -36,7 +37,7 @@ _align_model      = None
 _align_metadata   = None
 _diarize_model    = None
 _loaded_device    = None
-# _loaded_compute not tracked: device mismatch warning uses _loaded_device only
+_diarize_lock     = threading.Lock()  # prevents concurrent diarization loads
 
 
 def _resolve_device(config: dict) -> tuple[str, str]:
@@ -52,7 +53,7 @@ def preload(config: dict) -> None:
     """
     Load WhisperX model, alignment model, and diarization pipeline at startup.
     Called once from FastAPI startup event. Blocks until all models are ready.
-    This replaces per-job loading entirely.
+    HF token is read from config dict (set via UI, saved to config.json).
     """
     global _whisper_model, _align_model, _align_metadata
     global _diarize_model, _loaded_device
@@ -70,16 +71,45 @@ def preload(config: dict) -> None:
     )
     logger.info("[transcriber] Alignment model ready")
 
-    if HF_TOKEN:
-        _diarize_model = whisperx.diarize.DiarizationPipeline(
-            model_name=DIARIZATION_MODEL, token=HF_TOKEN, device=device
-        )
-        logger.info("[transcriber] Diarization pipeline ready (%s)", DIARIZATION_MODEL)
-    else:
-        logger.warning("[transcriber] HF_TOKEN not set — diarization disabled")
-
     _loaded_device = device
+
+    # Attempt diarization load if token present in config
+    hf_token = config.get("hf_token", "").strip()
+    if hf_token:
+        load_diarization(hf_token, device)
+    else:
+        logger.warning(
+            "[transcriber] No HF token in config — diarization disabled. "
+            "Set token via the web UI to enable speaker labels."
+        )
+
     logger.info("[transcriber] All models preloaded")
+
+
+def load_diarization(token: str, device: str = "cpu") -> bool:
+    """
+    Load (or reload) the diarization pipeline with the given token.
+    Thread-safe — can be called from the /set-hf-token route at any time.
+    Returns True on success, False on failure (logs the error).
+    """
+    global _diarize_model
+    with _diarize_lock:
+        try:
+            logger.info("[transcriber] Loading diarization pipeline (%s)...", DIARIZATION_MODEL)
+            _diarize_model = whisperx.diarize.DiarizationPipeline(
+                model_name=DIARIZATION_MODEL, token=token, device=device
+            )
+            logger.info("[transcriber] Diarization pipeline ready")
+            return True
+        except Exception as exc:
+            logger.error("[transcriber] Diarization load failed: %s", exc)
+            _diarize_model = None
+            return False
+
+
+def diarization_enabled() -> bool:
+    """Returns True if the diarization pipeline is currently loaded."""
+    return _diarize_model is not None
 
 
 def _build_segments(result: dict) -> list[dict]:
@@ -101,12 +131,10 @@ async def run_transcription(
 ) -> list[dict]:
     """
     Run transcription using preloaded models.
-    Accepts any audio file whisperx.load_audio() supports (WAV, MP3, etc.).
-    Falls back to loading on-demand if preload() was never called (dev mode).
+    Falls back to loading on-demand if preload() was never called (manual mode).
     """
-    # No global declarations needed: run_transcription only reads these values.
-    loop = asyncio.get_running_loop()  # fix #9
-    device, _ = _resolve_device(config)  # compute_type unused here; device used for mismatch check
+    loop = asyncio.get_running_loop()
+    device, _ = _resolve_device(config)
 
     # Warn if device changed since preload — models are locked to original device
     if _loaded_device and _loaded_device != device:
@@ -123,8 +151,7 @@ async def run_transcription(
             ),
         })
 
-    # On-demand load if preload was skipped.
-    # Run in an executor so the blocking model load doesn't freeze the event loop.
+    # On-demand load if preload was skipped (manual mode).
     if _whisper_model is None:
         logger.warning("[transcriber] Models not preloaded — loading now (will be slow)")
         await loop.run_in_executor(None, preload, config)
@@ -147,6 +174,8 @@ async def run_transcription(
             diarize_segments = _diarize_model(audio)
             result = whisperx.assign_word_speakers(diarize_segments, result)
             logger.info("[transcriber] Diarization done")
+        else:
+            logger.info("[transcriber] Diarization skipped — no token set")
 
         return _build_segments(result)
 

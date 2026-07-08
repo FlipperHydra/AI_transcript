@@ -213,6 +213,33 @@ select{
   flex-shrink:0;align-items:center;gap:10px;
 }
 #model-banner.visible{display:flex}
+
+/* ── HF Token banner ──────────────────────────────────────────── */
+#hf-banner{
+  display:none;background:rgba(251,191,36,.08);border:1px solid var(--amber);
+  border-radius:var(--radius);padding:8px 14px;font-size:.82rem;color:var(--amber);
+  flex-shrink:0;align-items:center;gap:8px;flex-wrap:wrap;
+}
+#hf-banner.visible{display:flex}
+#hf-banner label{font-weight:700;white-space:nowrap}
+#hf-token-input{
+  background:var(--bg);border:1px solid var(--amber);border-radius:6px;
+  color:var(--text);font-size:.8rem;padding:4px 10px;
+  width:260px;font-family:var(--mono);
+}
+#hf-token-input::placeholder{color:var(--muted);font-family:system-ui}
+#hf-save-btn{
+  background:var(--amber);color:#1a1a00;font-weight:700;
+  padding:4px 14px;font-size:.78rem;border-radius:6px;border:none;cursor:pointer;
+}
+#hf-save-btn:disabled{opacity:.45;cursor:default}
+#hf-status{font-size:.75rem;color:var(--muted)}
+.diarize-badge{
+  font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:20px;
+  margin-left:auto;
+}
+.diarize-badge.on{background:rgba(74,222,128,.12);color:var(--green);border:1px solid var(--green)}
+.diarize-badge.off{background:rgba(251,191,36,.12);color:var(--amber);border:1px solid var(--amber)}
 </style>
 </head>
 <body>
@@ -240,6 +267,16 @@ select{
 
     <!-- Crash banner -->
     <div id="crash-banner"></div>
+
+    <!-- HF Token banner -->
+    <div id="hf-banner">
+      <label>Speaker ID</label>
+      <input id="hf-token-input" type="password" placeholder="Paste HuggingFace token (hf_...)" autocomplete="off" spellcheck="false"/>
+      <button id="hf-save-btn">Save &amp; Enable</button>
+      <span id="hf-status"></span>
+      <button class="btn-ghost" id="btn-info-hf" style="padding:3px 9px;font-size:.78rem;margin-left:2px" title="How to get a token">?</button>
+      <span id="diarize-badge" class="diarize-badge off">Speaker ID off</span>
+    </div>
 
     <!-- Model loading banner -->
     <div id="model-banner">
@@ -341,6 +378,46 @@ select{
 
   </div><!-- /main -->
 </div><!-- /shell -->
+
+<!-- ── Info Modal: HF Token ───────────────────────────────────── -->
+<div class="modal-bg" id="modal-hf">
+  <div class="modal" style="max-width:600px">
+    <button class="modal-close" onclick="closeModal('modal-hf')">&#x2715;</button>
+    <h2>Enabling Speaker Identification</h2>
+
+    <div class="modal-section">
+      <h3>What is this?</h3>
+      <p>Speaker identification labels each line of your transcript with who said it (Speaker_00, Speaker_01, etc.). It requires a free HuggingFace account and a one-time license acceptance for the pyannote diarization model. The token is stored locally in <code>config.json</code> inside your Docker volume — it never leaves your machine.</p>
+    </div>
+
+    <div class="modal-section">
+      <h3>Step 1 — Create a free HuggingFace account</h3>
+      <p>Go to <strong>huggingface.co</strong> and sign up. It’s free and no credit card is required.</p>
+    </div>
+
+    <div class="modal-section">
+      <h3>Step 2 — Accept the two model licenses</h3>
+      <p>You must accept the conditions on both of these pages while logged in:</p>
+      <p>• <strong>huggingface.co/pyannote/speaker-diarization-3.1</strong> — click “Access repository” and fill in the short form.</p>
+      <p>• <strong>huggingface.co/pyannote/segmentation-3.0</strong> — same process. Both are required or the token will 403.</p>
+    </div>
+
+    <div class="modal-section">
+      <h3>Step 3 — Create a Read token</h3>
+      <p>Go to <strong>huggingface.co/settings/tokens</strong> &rarr; “New token” &rarr; select type <strong>Read</strong> (Fine-grained is not needed) &rarr; ensure “Access public gated repositories” is checked &rarr; Generate. Copy the token — it starts with <code>hf_</code>.</p>
+    </div>
+
+    <div class="modal-section">
+      <h3>Step 4 — Paste it here</h3>
+      <p>Paste the token into the <strong>Speaker ID</strong> field in the banner above and click <strong>Save &amp; Enable</strong>. The diarization model loads in the background (30–60 s first time, cached after). No container restart needed.</p>
+    </div>
+
+    <div class="modal-section">
+      <h3>What if I skip this?</h3>
+      <p>The app works fine without it. Transcripts will still be produced but all lines will show <strong>UNKNOWN</strong> as the speaker instead of individual labels. You can enable it at any time without restarting.</p>
+    </div>
+  </div>
+</div>
 
 <!-- ── Info Modal: Device ──────────────────────────────────────── -->
 <div class="modal-bg" id="modal-device">
@@ -553,9 +630,62 @@ function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 btnInfoDevice.addEventListener('click', () => openModal('modal-device'));
 btnInfoMode.addEventListener('click',   () => openModal('modal-mode'));
+document.getElementById('btn-info-hf').addEventListener('click', () => openModal('modal-hf'));
 document.querySelectorAll('.modal-bg').forEach(m => {
   m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
 });
+
+// ── HF Token banner ───────────────────────────────────────────────────────────
+const hfBanner    = document.getElementById('hf-banner');
+const hfInput     = document.getElementById('hf-token-input');
+const hfSaveBtn   = document.getElementById('hf-save-btn');
+const hfStatus    = document.getElementById('hf-status');
+const diarizeBadge = document.getElementById('diarize-badge');
+
+function setDiarizationUI(enabled) {
+  diarizeBadge.textContent = enabled ? 'Speaker ID on' : 'Speaker ID off';
+  diarizeBadge.className   = 'diarize-badge ' + (enabled ? 'on' : 'off');
+  if (enabled) {
+    hfBanner.classList.remove('visible');
+  } else {
+    hfBanner.classList.add('visible');
+  }
+}
+
+// Initialised from Jinja template on page load
+setDiarizationUI({{ 'true' if diarization_ok else 'false' }});
+
+hfSaveBtn.addEventListener('click', async () => {
+  const token = hfInput.value.trim();
+  if (!token) { hfStatus.textContent = 'Paste a token first.'; return; }
+  hfSaveBtn.disabled   = true;
+  hfStatus.textContent = 'Loading diarization model… (30–60 s)';
+  hfStatus.style.color = 'var(--amber)';
+  try {
+    const res  = await fetch('/set-hf-token', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ token }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      hfInput.value        = '';
+      hfStatus.textContent = '✓ Speaker identification enabled';
+      hfStatus.style.color = 'var(--green)';
+      setDiarizationUI(true);
+    } else {
+      hfStatus.textContent = '⚠ ' + (data.detail || 'Failed — check token & license acceptance');
+      hfStatus.style.color = 'var(--danger)';
+      hfSaveBtn.disabled   = false;
+    }
+  } catch(e) {
+    hfStatus.textContent = '⚠ Network error';
+    hfStatus.style.color = 'var(--danger)';
+    hfSaveBtn.disabled   = false;
+  }
+});
+
+// Allow Enter key in token input
+hfInput.addEventListener('keydown', e => { if (e.key === 'Enter') hfSaveBtn.click(); });
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 let ws;
@@ -570,11 +700,14 @@ function connectWS() {
       applyModeUI(msg.whisperx_mode || 'auto');
       if (msg.output_path) pathInput.value = msg.output_path;
       setModelsLoaded(msg.models_loaded);
+      setDiarizationUI(!!msg.diarization_ok);
       return;
     }
-    if (msg.event === 'device_changed') { applyDeviceUI(msg.device, msg.compute_type); return; }
-    if (msg.event === 'models_loading') { modelBannerTxt.textContent = 'Loading models…'; return; }
-    if (msg.event === 'models_ready')   { setModelsLoaded(true); return; }
+    if (msg.event === 'device_changed')    { applyDeviceUI(msg.device, msg.compute_type); return; }
+    if (msg.event === 'models_loading')    { modelBannerTxt.textContent = 'Loading models…'; return; }
+    if (msg.event === 'models_ready')      { setModelsLoaded(true); return; }
+    if (msg.event === 'hf_token_missing')  { setDiarizationUI(false); return; }
+    if (msg.event === 'diarization_ready') { setDiarizationUI(true);  return; }
 
     if (msg.event === 'error') {
       crashBanner.textContent = '⚠ ' + msg.detail;
