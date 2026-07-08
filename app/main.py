@@ -60,6 +60,7 @@ def _load_config() -> dict:
         "device":        "cpu",
         "compute_type":  "int8",
         "whisperx_mode": "auto",
+        "hf_token":      "",
     }
 
 
@@ -181,17 +182,19 @@ async def startup() -> None:
 async def _background_preload() -> None:
     """Load WhisperX + Ollama in the background so uvicorn serves immediately."""
     global models_loaded
+    import time as _time
     loop = asyncio.get_running_loop()
+    t0 = _time.monotonic()
     try:
         # No ws_broadcast(models_loading) here — no clients are connected at startup.
         # The WS 'init' event already sends models_loaded=False on connect.
-        await loop.run_in_executor(None, lambda: (
-            transcriber_preload(config),
-            preload_ollama(),
-        ))
+        # Two sequential executor calls so exceptions from each are attributed correctly.
+        await loop.run_in_executor(None, transcriber_preload, config)
+        await loop.run_in_executor(None, preload_ollama)
+        elapsed = round(_time.monotonic() - t0, 1)
         models_loaded = True
         await ws_broadcast({"event": "models_ready"})
-        logger.info("[startup] Models ready")
+        logger.info("[startup] Models ready — preload took %ss", elapsed)
     except Exception as exc:
         logger.exception("[startup] Background preload failed: %s", exc)
         await ws_broadcast({"event": "error", "detail": f"Model preload failed: {exc}"})
@@ -438,7 +441,7 @@ async def export_transcript(job_id: str):
         raise HTTPException(status_code=404, detail="Transcript not found")
     lines = []
     for seg in segments:
-        start = int(seg.get("start", 0))
+        start = int(seg.get("start") or 0)
         m, s  = divmod(start, 60)
         lines.append(f"[{m:02d}:{s:02d}] {seg.get('speaker','UNKNOWN')}: {seg.get('text','').strip()}")
     return PlainTextResponse(

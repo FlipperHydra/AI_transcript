@@ -4,9 +4,8 @@ recorder.py — PortAudio (sounddevice) capture, streaming WAV write.
 Pipeline:
   mic → sounddevice.InputStream → sf.SoundFile (WAV, 16kHz mono)
                                        ↓
-                              pushed to pipeline queue as WAV path
-                                       ↓
                            transcriber.py reads WAV directly
+                           (single-job model: no queue, no states)
 
 No MP3 conversion, no pydub, no double-buffering. WhisperX resamples
 to 16kHz mono internally anyway, so recording at CD quality (44100Hz)
@@ -133,11 +132,11 @@ class AudioRecorder:
             self._fail(f"Cannot enumerate audio devices: {exc}")
             return
 
-        logger.info(
-            "Capturing from: %s",
-            sd.query_devices(device_index)["name"] if device_index is not None
-            else "system default"
-        )
+        try:
+            dev_name = sd.query_devices(device_index)["name"] if device_index is not None else "system default"
+        except Exception:
+            dev_name = f"device index {device_index} (name unavailable)"
+        logger.info("Capturing from: %s", dev_name)
 
         try:
             with sf.SoundFile(

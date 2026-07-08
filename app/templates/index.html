@@ -236,7 +236,6 @@ select{
 #hf-status{font-size:.75rem;color:var(--muted)}
 .diarize-badge{
   font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:20px;
-  margin-left:auto;
 }
 .diarize-badge.on{background:rgba(74,222,128,.12);color:var(--green);border:1px solid var(--green)}
 .diarize-badge.off{background:rgba(251,191,36,.12);color:var(--amber);border:1px solid var(--amber)}
@@ -260,6 +259,7 @@ select{
     <div class="topbar">
       <h1>🎙 Audio Notes</h1>
       <span id="device-badge">CPU · int8</span>
+      <span id="diarize-badge" class="diarize-badge off">Speaker ID off</span>
       <div class="spacer"></div>
       <button id="btn-record">● Record</button>
       <button id="btn-stop" disabled>■ Stop</button>
@@ -275,7 +275,6 @@ select{
       <button id="hf-save-btn">Save &amp; Enable</button>
       <span id="hf-status"></span>
       <button class="btn-ghost" id="btn-info-hf" style="padding:3px 9px;font-size:.78rem;margin-left:2px" title="How to get a token">?</button>
-      <span id="diarize-badge" class="diarize-badge off">Speaker ID off</span>
     </div>
 
     <!-- Model loading banner -->
@@ -715,6 +714,9 @@ function connectWS() {
       setStatus('Pipeline crashed — recovered', '');
       clearStages();
       stopPolling();
+      // Reset record/stop buttons so the UI isn't left in a stuck state
+      btnRecord.disabled = !modelsLoaded;
+      btnStop.disabled   = true;
       return;
     }
 
@@ -724,7 +726,7 @@ function connectWS() {
       return;
     }
 
-    switch (msg.status || msg.event) {
+    switch (msg.event) {
       case 'recording_started':
       case 'recording':
         crashBanner.classList.remove('visible');
@@ -850,10 +852,16 @@ async function loadJob(jobId) {
 async function fetchTranscript(jobId) {
   try {
     const res = await fetch(`/transcript/${jobId}`);
-    if (!res.ok) return;
+    if (!res.ok) {
+      transcriptPanel.innerHTML = '<p class="placeholder">No transcript yet.</p>';
+      btnExportTranscript.style.display = 'none';
+      return;
+    }
     renderTranscript((await res.json()).segments);
     btnExportTranscript.style.display = 'inline-block';
-  } catch(_) {}
+  } catch(_) {
+    transcriptPanel.innerHTML = '<p class="placeholder">Could not load transcript.</p>';
+  }
 }
 function renderTranscript(segs) {
   if (!segs || !segs.length) {
