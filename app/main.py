@@ -28,7 +28,7 @@ from app.db import (
     get_all_jobs,
 )
 from app.recorder import AudioRecorder
-from app.transcriber import preload as transcriber_preload, run_transcription
+from app.transcriber import preload as transcriber_preload, run_transcription, diarization_enabled, load_diarization
 from app.notes_gen import preload_ollama, generate_notes
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s: %(message)s")
